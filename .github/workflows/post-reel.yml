@@ -2,7 +2,8 @@ name: Post Instagram Reel Daily
 
 on:
   schedule:
-    - cron: "0 12 * * *"   # every day 14:00 Italy (12:00 UTC)
+    - cron: "0 12 * * *"   # runs daily at 14:00 Italy (12:00 UTC)
+
   workflow_dispatch: {}
 
 jobs:
