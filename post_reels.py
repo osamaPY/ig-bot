@@ -1,4 +1,3 @@
-# post_reel.py
 import argparse
 import hashlib
 import hmac
@@ -6,7 +5,6 @@ import os
 import sys
 import time
 from urllib.parse import urlparse
-
 import requests
 from dotenv import load_dotenv
 
@@ -14,7 +12,7 @@ load_dotenv()
 
 ACCESS_TOKEN = os.getenv("ACCESS_TOKEN")
 IG_USER_ID = os.getenv("IG_USER_ID")
-APP_SECRET = os.getenv("APP_SECRET")  # optional but recommended
+APP_SECRET = os.getenv("APP_SECRET")
 
 if not ACCESS_TOKEN or not IG_USER_ID:
     print("Missing ACCESS_TOKEN or IG_USER_ID in .env")
@@ -25,7 +23,6 @@ SESSION = requests.Session()
 SESSION.headers.update({"User-Agent": "ig-reels-uploader/1.0"})
 
 def appsecret_proof():
-    """Generate appsecret_proof if APP_SECRET is present (recommended)."""
     if not APP_SECRET:
         return None
     dig = hmac.new(APP_SECRET.encode("utf-8"), ACCESS_TOKEN.encode("utf-8"), hashlib.sha256).hexdigest()
@@ -41,26 +38,16 @@ def params_with_auth(extra=None):
     return p
 
 def normalize_github_raw(url: str) -> str:
-    """
-    Convert GitHub 'web' raw URLs to true raw.githubusercontent.com form, which
-    is more reliable for external fetchers like Instagram.
-    Examples:
-      https://github.com/user/repo/raw/refs/heads/main/file.mp4
-      -> https://raw.githubusercontent.com/user/repo/main/file.mp4
-    """
     if "github.com" in url and "/raw/" in url:
         parts = url.split("/")
-        # [https:, '', github.com, user, repo, raw, refs, heads, branch, *path]
         try:
             user = parts[3]
             repo = parts[4]
-            # handle .../raw/refs/heads/<branch>/...
             idx = parts.index("raw")
             if parts[idx+1:idx+3] == ["refs", "heads"]:
                 branch = parts[idx+3]
                 path = "/".join(parts[idx+4:])
             else:
-                # handle .../raw/<branch>/...
                 branch = parts[idx+1]
                 path = "/".join(parts[idx+2:])
             return f"https://raw.githubusercontent.com/{user}/{repo}/{branch}/{path}"
@@ -69,10 +56,6 @@ def normalize_github_raw(url: str) -> str:
     return url
 
 def check_video_url_public(url: str):
-    """
-    Do a lightweight HEAD to ensure the URL is reachable and likely an MP4.
-    IG requires a publicly accessible HTTPS URL that supports ranged downloads.
-    """
     try:
         r = SESSION.head(url, allow_redirects=True, timeout=20)
     except Exception as e:
@@ -82,9 +65,7 @@ def check_video_url_public(url: str):
         return False, f"URL returned HTTP {r.status_code}"
 
     ctype = r.headers.get("Content-Type", "")
-    # Allow 'video/mp4' or generic 'application/octet-stream' that GitHub may use
     if not ("video" in ctype or "octet-stream" in ctype):
-        # Some hosts omit Content-Type on HEAD; try GET with stream to peek
         try:
             g = SESSION.get(url, stream=True, allow_redirects=True, timeout=20)
             g.raise_for_status()
@@ -97,12 +78,11 @@ def check_video_url_public(url: str):
     return True, "OK"
 
 def create_reel(video_url: str, caption: str):
-    """Create a media container for a Reel via video_url ingestion."""
     url = f"{GRAPH}/{IG_USER_ID}/media"
     payload = {
         "media_type": "REELS",
         "caption": caption,
-        "video_url": video_url,      # must be public HTTPS
+        "video_url": video_url,
         "share_to_feed": "true"
     }
     r = SESSION.post(url, data=params_with_auth(payload), timeout=120)
@@ -111,20 +91,18 @@ def create_reel(video_url: str, caption: str):
 def get_status(creation_id: str):
     url = f"{GRAPH}/{creation_id}"
     params = {
-        "fields": "status_code,status",  # no video_id here
+        "fields": "status_code,status",
         "access_token": ACCESS_TOKEN,
     }
     r = requests.get(url, params=params, timeout=60)
     return r.json()
 
 def publish_reel(creation_id: str):
-    """Publish the processed media as a Reel."""
     url = f"{GRAPH}/{IG_USER_ID}/media_publish"
     r = SESSION.post(url, data=params_with_auth({"creation_id": creation_id}), timeout=120)
     return safe_json(r)
 
 def get_permalink(media_id: str):
-    """Fetch a permalink to the published Reel (optional)."""
     url = f"{GRAPH}/{media_id}"
     r = SESSION.get(url, params=params_with_auth({"fields": "permalink"}), timeout=60)
     return safe_json(r)
@@ -148,10 +126,7 @@ def main():
     parser.add_argument("--caption", default="Posted via API 🚀")
     args = parser.parse_args()
 
-    # Normalize GitHub URLs to raw.githubusercontent.com (IG fetches more reliably)
     vid_url = normalize_github_raw(args.video_url)
-
-    # Quick sanity check
     ok, why = check_video_url_public(vid_url)
     if not ok:
         print(f"❌ Video URL check failed: {why}")
@@ -211,6 +186,4 @@ def main():
         print("\n⚠️ Published, but no media_id returned. Check your account.")
 
 if __name__ == "__main__":
-    # If you want a hard default to your video, you can run:
-    # python post_reel.py --video-url "https://github.com/osamaPY/chakchabani/raw/refs/heads/main/chakchabani.mp4"
     main()
